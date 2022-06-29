@@ -77,7 +77,7 @@ import xyz.doikki.videoplayer.player.VideoView;
  */
 public class PlayActivity extends BaseActivity {
     private VideoView mVideoView;
-    private VodController controller;
+    private VodController mController;
     private SourceViewModel sourceViewModel;
 
     @Override
@@ -95,11 +95,10 @@ public class PlayActivity extends BaseActivity {
     private void initView() {
         setLoadSir(findViewById(R.id.rootLayout));
         mVideoView = findViewById(R.id.mVideoView);
-        PlayerHelper.updateCfg(mVideoView);
-        controller = new VodController(this);
-        controller.setCanChangePosition(true);
-        controller.setEnableInNormal(true);
-        controller.setGestureEnabled(true);
+        mController = new VodController(this);
+        mController.setCanChangePosition(true);
+        mController.setEnableInNormal(true);
+        mController.setGestureEnabled(true);
         mVideoView.setProgressManager(new ProgressManager() {
             @Override
             public void saveProgress(String url, long progress) {
@@ -109,12 +108,18 @@ public class PlayActivity extends BaseActivity {
             @Override
             public long getSavedProgress(String url) {
                 if (CacheManager.getCache(MD5.string2MD5(url)) == null) {
-                    return 0;
+                    int st = 0;
+                    try {
+                        st = mVodPlayerCfg.getInt("st");
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                    return st * 1000;
                 }
                 return (long) CacheManager.getCache(MD5.string2MD5(url));
             }
         });
-        controller.setListener(new VodController.VodControlListener() {
+        mController.setListener(new VodController.VodControlListener() {
             @Override
             public void playNext() {
                 PlayActivity.this.playNext();
@@ -129,8 +134,24 @@ public class PlayActivity extends BaseActivity {
             public void changeParse(ParseBean pb) {
                 doParse(pb);
             }
+
+            @Override
+            public void updatePlayerCfg() {
+                mVodInfo.playerCfg = mVodPlayerCfg.toString();
+                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, mVodPlayerCfg));
+            }
+
+            @Override
+            public void replay() {
+                play();
+            }
+
+            @Override
+            public void autoReplay() {
+
+            }
         });
-        mVideoView.setVideoController(controller);
+        mVideoView.setVideoController(mController);
     }
 
     void getPlayInfoError() {
@@ -158,6 +179,7 @@ public class PlayActivity extends BaseActivity {
             public void run() {
                 if (mVideoView != null) {
                     mVideoView.release();
+                    PlayerHelper.updateCfg(mVideoView, mVodPlayerCfg);
                     mVideoView.setProgressKey(progressKey);
                     if (headers != null) {
                         mVideoView.setUrl(url, headers);
@@ -165,6 +187,7 @@ public class PlayActivity extends BaseActivity {
                         mVideoView.setUrl(url);
                     }
                     mVideoView.start();
+                    mController.resetSpeed();
                 }
             }
         });
@@ -204,7 +227,7 @@ public class PlayActivity extends BaseActivity {
                             boolean userJxList = (playUrl.isEmpty() && ApiConfig.get().getVipParseFlags().contains(flag)) || jx;
                             initParse(flag, userJxList, playUrl, url);
                         } else {
-                            controller.showParse(false);
+                            mController.showParse(false);
                             playUrl(playUrl + url, headers);
                         }
                     } catch (Throwable th) {
@@ -223,13 +246,48 @@ public class PlayActivity extends BaseActivity {
             Bundle bundle = intent.getExtras();
             mVodInfo = (VodInfo) bundle.getSerializable("VodInfo");
             sourceKey = bundle.getString("sourceKey");
+            initPlayerCfg();
             play();
         }
     }
 
+    void initPlayerCfg() {
+        try {
+            mVodPlayerCfg = new JSONObject(mVodInfo.playerCfg);
+        } catch (Throwable th) {
+            mVodPlayerCfg = new JSONObject();
+        }
+        try {
+            if (!mVodPlayerCfg.has("pl")) {
+                mVodPlayerCfg.put("pl", Hawk.get(HawkConfig.PLAY_TYPE, 1));
+            }
+            if (!mVodPlayerCfg.has("pr")) {
+                mVodPlayerCfg.put("pr", Hawk.get(HawkConfig.PLAY_RENDER, 0));
+            }
+            if (!mVodPlayerCfg.has("ijk")) {
+                mVodPlayerCfg.put("ijk", Hawk.get(HawkConfig.IJK_CODEC, ""));
+            }
+            if (!mVodPlayerCfg.has("sc")) {
+                mVodPlayerCfg.put("sc", Hawk.get(HawkConfig.PLAY_SCALE, 0));
+            }
+            if (!mVodPlayerCfg.has("sp")) {
+                mVodPlayerCfg.put("sp", 1.0f);
+            }
+            if (!mVodPlayerCfg.has("st")) {
+                mVodPlayerCfg.put("st", 0);
+            }
+            if (!mVodPlayerCfg.has("et")) {
+                mVodPlayerCfg.put("et", 0);
+            }
+        } catch (Throwable th) {
+
+        }
+        mController.setPlayerConfig(mVodPlayerCfg);
+    }
+
     @Override
     public void onBackPressed() {
-        if (controller.onBackPressed()) {
+        if (mController.onBackPressed()) {
             return;
         }
         super.onBackPressed();
@@ -238,7 +296,7 @@ public class PlayActivity extends BaseActivity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event != null) {
-            if (controller.onKeyEvent(event)) {
+            if (mController.onKeyEvent(event)) {
                 return true;
             }
         }
@@ -274,6 +332,7 @@ public class PlayActivity extends BaseActivity {
     }
 
     private VodInfo mVodInfo;
+    private JSONObject mVodPlayerCfg;
     private String sourceKey;
 
     private void playNext() {
@@ -323,7 +382,7 @@ public class PlayActivity extends BaseActivity {
         parseFlag = flag;
         webUrl = url;
         ParseBean parseBean = null;
-        controller.showParse(useParse);
+        mController.showParse(useParse);
         if (useParse) {
             parseBean = ApiConfig.get().getDefaultParse();
         } else {

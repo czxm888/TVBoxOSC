@@ -15,16 +15,20 @@ import androidx.annotation.NonNull;
 import com.chad.library.adapter.base.BaseQuickAdapter;
 import com.github.tvbox.osc.R;
 import com.github.tvbox.osc.api.ApiConfig;
+import com.github.tvbox.osc.bean.IJKCode;
 import com.github.tvbox.osc.bean.ParseBean;
 import com.github.tvbox.osc.ui.adapter.ParseAdapter;
+import com.github.tvbox.osc.util.HawkConfig;
+import com.github.tvbox.osc.util.PlayerHelper;
+import com.orhanobut.hawk.Hawk;
 import com.owen.tvrecyclerview.widget.TvRecyclerView;
 import com.owen.tvrecyclerview.widget.V7LinearLayoutManager;
 
 import org.jetbrains.annotations.NotNull;
+import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.HashMap;
-import java.util.Iterator;
+import java.util.List;
 
 import xyz.doikki.videoplayer.player.VideoView;
 import xyz.doikki.videoplayer.util.PlayerUtils;
@@ -52,6 +56,18 @@ public class VodController extends BaseController {
                     }
                     case 1003: { // 隐藏底部菜单
                         mBottomRoot.setVisibility(GONE);
+                        break;
+                    }
+                    case 1004: { // 设置速度
+                        if (isInPlaybackState()) {
+                            try {
+                                float speed = (float) mPlayerConfig.getDouble("sp");
+                                mControlWrapper.setSpeed(speed);
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            }
+                        } else
+                            mHandler.sendEmptyMessageDelayed(1004, 100);
                         break;
                     }
                 }
@@ -155,54 +171,138 @@ public class VodController extends BaseController {
             @Override
             public void onClick(View view) {
                 listener.playNext();
+                hideBottom();
             }
         });
         mPreBtn.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View view) {
                 listener.playPre();
+                hideBottom();
             }
         });
         mPlayerScaleBtn.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View view) {
-
+                try {
+                    int scaleType = mPlayerConfig.getInt("sc");
+                    scaleType++;
+                    if (scaleType > 5)
+                        scaleType = 0;
+                    mPlayerConfig.put("sc", scaleType);
+                    updatePlayerCfgView();
+                    listener.updatePlayerCfg();
+                    mControlWrapper.setScreenScaleType(scaleType);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
             }
         });
         mPlayerSpeedBtn.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View view) {
-
+                try {
+                    float speed = (float) mPlayerConfig.getDouble("sp");
+                    speed += 0.5f;
+                    if (speed > 3)
+                        speed = 1;
+                    mPlayerConfig.put("sp", speed);
+                    updatePlayerCfgView();
+                    listener.updatePlayerCfg();
+                    mControlWrapper.setSpeed(speed);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
             }
         });
         mPlayerBtn.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View view) {
-
+                try {
+                    int playerType = mPlayerConfig.getInt("pl");
+                    playerType++;
+                    if (playerType > 2)
+                        playerType = 0;
+                    mPlayerConfig.put("pl", playerType);
+                    updatePlayerCfgView();
+                    listener.updatePlayerCfg();
+                    listener.replay();
+                    hideBottom();
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
             }
         });
         mPlayerIJKBtn.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View view) {
-
+                try {
+                    String ijk = mPlayerConfig.getString("ijk");
+                    List<IJKCode> codecs = ApiConfig.get().getIjkCodes();
+                    for (int i = 0; i < codecs.size(); i++) {
+                        if (ijk.equals(codecs.get(i).getName())) {
+                            if (i >= codecs.size() - 1)
+                                ijk = codecs.get(0).getName();
+                            else {
+                                ijk = codecs.get(i + 1).getName();
+                            }
+                            break;
+                        }
+                    }
+                    mPlayerConfig.put("ijk", ijk);
+                    updatePlayerCfgView();
+                    listener.updatePlayerCfg();
+                    listener.replay();
+                    hideBottom();
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
             }
         });
         mPlayerTimeStartBtn.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View view) {
-
+                try {
+                    int step = Hawk.get(HawkConfig.PLAY_TIME_STEP, 5);
+                    int st = mPlayerConfig.getInt("st");
+                    st += step;
+                    if (st > 60 * 10)
+                        st = 0;
+                    mPlayerConfig.put("st", st);
+                    updatePlayerCfgView();
+                    listener.updatePlayerCfg();
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
             }
         });
         mPlayerTimeSkipBtn.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View view) {
-
+                try {
+                    int step = Hawk.get(HawkConfig.PLAY_TIME_STEP, 5);
+                    int et = mPlayerConfig.getInt("et");
+                    et += step;
+                    if (et > 60 * 10)
+                        et = 0;
+                    mPlayerConfig.put("et", et);
+                    updatePlayerCfgView();
+                    listener.updatePlayerCfg();
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
             }
         });
         mPlayerTimeStepBtn.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View view) {
-
+                int step = Hawk.get(HawkConfig.PLAY_TIME_STEP, 5);
+                step += 5;
+                if (step > 30) {
+                    step = 5;
+                }
+                Hawk.put(HawkConfig.PLAY_TIME_STEP, step);
+                updatePlayerCfgView();
             }
         });
     }
@@ -216,12 +316,47 @@ public class VodController extends BaseController {
         mParseRoot.setVisibility(userJxList ? VISIBLE : GONE);
     }
 
+    private JSONObject mPlayerConfig = null;
+
+    public void setPlayerConfig(JSONObject playerCfg) {
+        this.mPlayerConfig = playerCfg;
+        updatePlayerCfgView();
+    }
+
+    void updatePlayerCfgView() {
+        try {
+            int playerType = mPlayerConfig.getInt("pl");
+            mPlayerBtn.setText(PlayerHelper.getPlayerName(playerType));
+            mPlayerScaleBtn.setText(PlayerHelper.getScaleName(mPlayerConfig.getInt("sc")));
+            mPlayerIJKBtn.setText(mPlayerConfig.getString("ijk"));
+            mPlayerIJKBtn.setVisibility(playerType == 1 ? VISIBLE : GONE);
+            mPlayerScaleBtn.setText(PlayerHelper.getScaleName(mPlayerConfig.getInt("sc")));
+            mPlayerSpeedBtn.setText("x" + mPlayerConfig.getDouble("sp"));
+            mPlayerTimeStartBtn.setText(PlayerUtils.stringForTime(mPlayerConfig.getInt("st") * 1000));
+            mPlayerTimeSkipBtn.setText(PlayerUtils.stringForTime(mPlayerConfig.getInt("et") * 1000));
+            mPlayerTimeStepBtn.setText(Hawk.get(HawkConfig.PLAY_TIME_STEP, 5) + "s");
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void resetSpeed() {
+        mHandler.removeMessages(1004);
+        mHandler.sendEmptyMessageDelayed(1004, 100);
+    }
+
     public interface VodControlListener {
         void playNext();
 
         void playPre();
 
         void changeParse(ParseBean pb);
+
+        void updatePlayerCfg();
+
+        void replay();
+
+        void autoReplay();
     }
 
     public void setListener(VodControlListener listener) {
@@ -236,6 +371,15 @@ public class VodController extends BaseController {
             return;
         }
         super.setProgress(duration, position);
+        int et = 0;
+        try {
+            et = mPlayerConfig.getInt("et");
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        if (position + (et * 1000) >= duration) {
+            listener.playNext();
+        }
         mCurrentTime.setText(PlayerUtils.stringForTime(position));
         mTotalTime.setText(PlayerUtils.stringForTime(duration));
         if (duration > 0) {
@@ -303,10 +447,40 @@ public class VodController extends BaseController {
     protected void onPlayStateChanged(int playState) {
         super.onPlayStateChanged(playState);
         switch (playState) {
+            case VideoView.STATE_IDLE:
+                break;
             case VideoView.STATE_PLAYING:
                 startProgress();
                 break;
+            case VideoView.STATE_PAUSED:
+                break;
+            case VideoView.STATE_ERROR:
+                listener.autoReplay();
+                break;
+            case VideoView.STATE_PREPARED:
+            case VideoView.STATE_BUFFERED:
+                break;
+            case VideoView.STATE_PREPARING:
+            case VideoView.STATE_BUFFERING:
+                break;
+            case VideoView.STATE_PLAYBACK_COMPLETED:
+                listener.playNext();
+                break;
         }
+    }
+
+    boolean isBottomVisible() {
+        return mBottomRoot.getVisibility() == VISIBLE;
+    }
+
+    void showBottom() {
+        mHandler.removeMessages(1003);
+        mHandler.sendEmptyMessage(1002);
+    }
+
+    void hideBottom() {
+        mHandler.removeMessages(1002);
+        mHandler.sendEmptyMessage(1003);
     }
 
     @Override
@@ -314,7 +488,7 @@ public class VodController extends BaseController {
         if (super.onKeyEvent(event)) {
             return true;
         }
-        if (mBottomRoot.getVisibility() == VISIBLE) {
+        if (isBottomVisible()) {
             return super.dispatchKeyEvent(event);
         }
         boolean isInPlayback = isInPlaybackState();
@@ -333,9 +507,8 @@ public class VodController extends BaseController {
                 }
             } else if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
             } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                if (mBottomRoot.getVisibility() == GONE) {
-                    mHandler.removeMessages(1003);
-                    mHandler.sendEmptyMessage(1002);
+                if (!isBottomVisible()) {
+                    showBottom();
                 }
             }
         } else if (action == KeyEvent.ACTION_UP) {
@@ -351,12 +524,10 @@ public class VodController extends BaseController {
 
     @Override
     public boolean onSingleTapConfirmed(MotionEvent e) {
-        if (mBottomRoot.getVisibility() == GONE) {
-            mHandler.removeMessages(1003);
-            mHandler.sendEmptyMessage(1002);
+        if (!isBottomVisible()) {
+            showBottom();
         } else {
-            mHandler.removeMessages(1002);
-            mHandler.sendEmptyMessage(1003);
+            hideBottom();
         }
         return true;
     }
@@ -366,9 +537,8 @@ public class VodController extends BaseController {
         if (super.onBackPressed()) {
             return true;
         }
-        if (mBottomRoot.getVisibility() == VISIBLE) {
-            mHandler.removeMessages(1002);
-            mHandler.sendEmptyMessage(1003);
+        if (isBottomVisible()) {
+            hideBottom();
             return true;
         }
         return false;
